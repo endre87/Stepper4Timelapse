@@ -17,8 +17,7 @@
  * LCD K pin to GND
  *    
  * Infrared signal to digital pin 12
- * Stepper motor digital pins: 8, 9, 10, 11
- * 
+ * Stepper motor digital pins: 8, 9, 10, 11 Custom library for the 5V arduino stepper motor http://playground.arduino.cc/Main/CustomStepper
  * 
  */
  
@@ -119,7 +118,9 @@ void loop() {
     writeStep(stp = 0);
   }
 
-  showEditor();
+  if (mod == MODE_MANUAL) {
+    showEditor();
+  }
   stepperMotor.run();
 }
 
@@ -222,10 +223,9 @@ void switchMode() {
     editorIndex = EDITOR_DELAY_INDEX;
     writeDelay(dly);
   } else {
+    lcd.noCursor();
     editorIndex = 0;
     rundly = dly;
-//    stp = 0;
-//    writeStep();
   }
   writeMode();
 }
