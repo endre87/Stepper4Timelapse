@@ -66,6 +66,7 @@ CustomStepper stepperMotor(8, 9, 10, 11);
 
 const int lcdLightPowerOffTime = 1000 * 5000;
 int lcdLightPowerOffCounter = lcdLightPowerOffTime;
+boolean lcdLightFlag = true;
 
 int mod = MODE_MANUAL;
 int dly = 36; // 36 default
@@ -96,7 +97,6 @@ void setup() {
   Timer1.attachInterrupt(runTimer); // runTimer to run every 1 second
 
   pinMode(LCD_LIGHT_PIN, OUTPUT);
-  turnLCDLight(true);
 }
 
 // ---------------------------------------------------------------
@@ -113,7 +113,11 @@ void loop() {
   } else if (button == BTN_MINUS) {
     changeEditorValue(-1);
   } else if (button == BTN_EQ) {
-    nextEditor();
+    if (mod == MODE_AUTO) {
+      lcdLightFlag ^= true;
+    } else {
+      nextEditor();
+    }
   } else if (button == BTN_ZERO) {
     writeStep(stp = 0);
   }
@@ -143,15 +147,6 @@ void runTimer() {
 // ---------------------------------------------------------------
 // STATE - CONTROL
 // ---------------------------------------------------------------
-void handleLCDPowerSaving() {
-  if (POWER_SAVING) {
-    lcdLightPowerOffCounter--;
-    if (lcdLightPowerOffCounter == 0) {
-      turnLCDLight(false);
-      lcdLightPowerOffCounter = lcdLightPowerOffTime;
-    }
-  }
-}
 
 void nextEditor() {
   if (mod == MODE_MANUAL) {
@@ -223,6 +218,9 @@ void switchMode() {
     editorIndex = EDITOR_DELAY_INDEX;
     writeDelay(dly);
   } else {
+    if (POWER_SAVING) {
+      lcdLightFlag = false;
+    }
     lcd.noCursor();
     editorIndex = 0;
     rundly = dly;
@@ -233,8 +231,19 @@ void switchMode() {
 // ---------------------------------------------------------------
 // LCD
 // ---------------------------------------------------------------
-void turnLCDLight(boolean state) {
-  digitalWrite(LCD_LIGHT_PIN, state ? HIGH : LOW);
+void handleLCDPowerSaving() {
+  if (POWER_SAVING && mod == MODE_MANUAL) {
+    lcdLightPowerOffCounter--;
+    if (lcdLightPowerOffCounter == 0) {
+      lcdLightFlag = false;
+      lcdLightPowerOffCounter = lcdLightPowerOffTime;
+    }
+  }
+  turnLCDLight();
+}
+
+void turnLCDLight() {
+  digitalWrite(LCD_LIGHT_PIN, lcdLightFlag ? HIGH : LOW);
 }
 
 void writeLCDHeaders() {
@@ -319,7 +328,9 @@ int readRemote() {
   static int lastPressed = 0;
   int result = 0;
   if (irrecv.decode(&results)) {
-    turnLCDLight(true);
+    if (mod == MODE_MANUAL) {
+      lcdLightFlag = true;
+    }
     lcdLightPowerOffCounter = lcdLightPowerOffTime;
     switch (results.value) {
       case 16769055: // -
