@@ -25,21 +25,20 @@
 #include <LiquidCrystal.h>
 #include <IRremote.h>
 #include <TimerOne.h>
-#include <Stepper.h>
+#include <CustomStepper.h>
 
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
 IRrecv irrecv(12);
 decode_results results;
-Stepper stepperMotor(200, 8, 9, 10, 11); // stepsPerRevolution = 200 (360 angle)
+//Stepper stepperMotor(200, 8, 9, 10, 11); // stepsPerRevolution = 200 (360 angle)
+CustomStepper stepperMotor(8, 9, 10, 11);
 
 // Constants
 #define ENABLE_SERIAL 0 // when developing write program debug infos over SERIAL port
 #define POWER_SAVING 1  // disable LCD light after 10 sec, stop stepper motor after step
 
 #define LCD_LIGHT_PIN 13
-#define LCD_LIGHT_POWER_OFF_SEC 10
-#define MAIN_LOOP_DELAY_MS 50
 
 #define MODE_MANUAL 0
 #define MODE_AUTO 1
@@ -66,7 +65,7 @@ Stepper stepperMotor(200, 8, 9, 10, 11); // stepsPerRevolution = 200 (360 angle)
 #define BTN_EQ 12
 #define BTN_PLAY 13
 
-const int lcdLightPowerOffTime = (LCD_LIGHT_POWER_OFF_SEC * 1000) / MAIN_LOOP_DELAY_MS;
+const int lcdLightPowerOffTime = 1000 * 5000;
 int lcdLightPowerOffCounter = lcdLightPowerOffTime;
 
 int mod = MODE_MANUAL;
@@ -77,7 +76,7 @@ int dir = DIRECTION_CLOCKWISE;
 volatile unsigned int rundly = dly;
 volatile unsigned int stp = 0;
 
-int editorIndex = EDITOR_STEP_INDEX;
+int editorIndex = EDITOR_DELAY_INDEX;
 
 void setup() {
   if (ENABLE_SERIAL) {
@@ -87,9 +86,6 @@ void setup() {
   
   // initialize LCD and set up the number of columns and rows:
   lcd.begin(16, 2);
-
-  // set the stepper motor speed at 60 rpm:
-//  stepperMotor.setSpeed(60);
   
   writeLCDHeaders();
   writeMode();
@@ -124,7 +120,7 @@ void loop() {
   }
 
   showEditor();
-  delay(MAIN_LOOP_DELAY_MS);
+  stepperMotor.run();
 }
 
 // ---------------------------------------------------------------
@@ -158,7 +154,9 @@ void handleLCDPowerSaving() {
 
 void nextEditor() {
   if (mod == MODE_MANUAL) {
-    if (editorIndex == 0 || editorIndex == EDITOR_STEP_INDEX) {
+//    if (editorIndex == 0 || editorIndex == EDITOR_STEP_INDEX) {
+//  Removed step editor
+    if (editorIndex == 0 || editorIndex == EDITOR_DELAY_INDEX) {
       editorIndex = 1;
     } else {
       editorIndex++;
@@ -179,14 +177,26 @@ void changeEditorValue(int ammount) {
 }
 
 void doStep(int ammount) {
-  int stepValue = 0;
-  if (dir == DIRECTION_CLOCKWISE) {
-    stepValue = ammount;
+//  With default - arduino library stepper motor
+//  int stepValue = 0;
+//  if (dir == DIRECTION_CLOCKWISE) {
+//    stepValue = ammount;
+//  } else {
+//    stepValue = -ammount;
+//  }
+//  stepperMotor.step(stepValue);
+
+// With custom library
+  if ((dir == DIRECTION_CLOCKWISE && ammount > 0) || (dir == DIRECTION_COUNTERCLOCKWISE && ammount < 0)) {
+    // Clockwise case; CCW == normally clockwise ?!
+    stepperMotor.setDirection(CCW);
   } else {
-    stepValue = -ammount;
+    // Counterclockwise case; CW == normally counterclockwise ?!
+    stepperMotor.setDirection(CW);
   }
+  stepperMotor.rotateDegrees(1.8*abs(ammount));
+  
   changeValue(&stp, ammount, 0, STEP_MAX);
-  stepperMotor.step(stepValue);
   writeStep(stp);
 }
 
@@ -209,7 +219,7 @@ void changeValue(int *value, int ammount, int minimum, int maximum) {
 void switchMode() {
   mod ^= 1;
   if (mod == MODE_MANUAL) {
-    editorIndex = EDITOR_STEP_INDEX;
+    editorIndex = EDITOR_DELAY_INDEX;
     writeDelay(dly);
   } else {
     editorIndex = 0;
