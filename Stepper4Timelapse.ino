@@ -13,10 +13,10 @@
  * LCD D5 pin to digital pin 4
  * LCD D6 pin to digital pin 3
  * LCD D7 pin to digital pin 2
- * LCD A pin to digital pin 13 - used to power the LCD backlight / can be disabled
+ * LCD A pin to digital pin 12 - used to power the LCD backlight / can be disabled
  * LCD K pin to GND
  *    
- * Infrared signal to digital pin 12
+ * Infrared signal to digital pin 13
  * Stepper motor digital pins: 8, 9, 10, 11 Custom library for the 5V arduino stepper motor http://playground.arduino.cc/Main/CustomStepper
  * 
  */
@@ -28,35 +28,35 @@
 
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
-IRrecv irrecv(12);
+IRrecv irrecv(13);
 decode_results results;
 //Stepper stepperMotor(200, 8, 9, 10, 11); // stepsPerRevolution = 200 (360 angle)
-CustomStepper stepperMotor(8, 9, 10, 11);
+CustomStepper stepperMotor(8, 9, 10, 11, (byte[]){8, B1000, B1100, B0100, B0110, B0010, B0011, B0001, B1001}, 4075.7728395, 14, CW); // taken from example code
 
 // Constants
 #define ENABLE_SERIAL 0 // when developing write program debug infos over SERIAL port
-#define POWER_SAVING 1  // disable LCD light after 10 sec, stop stepper motor after step
+#define POWER_SAVING 0  // disable LCD light after 10 sec, stop stepper motor after step
 
-#define LCD_LIGHT_PIN 13
+#define LCD_LIGHT_PIN 12
 
 #define MODE_MANUAL 0
 #define MODE_AUTO 1
-#define MODE_MANUAL_LABEL "MAN"
+#define MODE_MANUAL_LABEL "SET"
 #define MODE_AUTO_LABEL "RUN"
 #define DIRECTION_CLOCKWISE 0
 #define DIRECTION_COUNTERCLOCKWISE 1
-#define DIRECTION_CLOCKWISE_LABEL "-->"
-#define DIRECTION_COUNTERCLOCKWISE_LABEL "<--"
+#define DIRECTION_CLOCKWISE_LABEL "->"
+#define DIRECTION_COUNTERCLOCKWISE_LABEL "<-"
 #define DELAY_MAX 999
-#define STEP_MAX 199 // on a 1.8 angle stepper motor 200 steps is 360 angle, 200 = 0
+#define ANGLE_MAX 3600 // this is displayed as 360.0 on LCD
 
 #define EDITOR_DIR_INDEX 1
 #define EDITOR_DELAY_INDEX 2
-#define EDITOR_STEP_INDEX 3
+#define EDITOR_ANGLE_INDEX 3
 
-#define STEP_EDITOR_CURSOR_POSITION 15
-#define DIR_EDITOR_CURSOR_POSITION 6
-#define DELAY_EDITOR_CURSOR_POSITION 10
+#define ANGLE_EDITOR_CURSOR_POSITION 15
+#define DIR_EDITOR_CURSOR_POSITION 5
+#define DELAY_EDITOR_CURSOR_POSITION 9
 
 #define BTN_ZERO 1000
 #define BTN_MINUS 10
@@ -64,17 +64,19 @@ CustomStepper stepperMotor(8, 9, 10, 11);
 #define BTN_EQ 12
 #define BTN_PLAY 13
 
+const int angleIncPerStep[9] = {4, 9, 18, 36, 72, 144, 288, 576, 900}; // value / 10 - angle to increase in each step
 const int lcdLightPowerOffTime = 1000 * 5000;
 int lcdLightPowerOffCounter = lcdLightPowerOffTime;
 boolean lcdLightFlag = true;
 
 int mod = MODE_MANUAL;
 int dly = 36; // 36 default
+int angIndex = 2; // angleIncPerStep[2] = 18  default
 int dir = DIRECTION_CLOCKWISE;
 
 // run time display variables
 volatile unsigned int rundly = dly;
-volatile unsigned int stp = 0;
+volatile unsigned int runAngle = 0;
 
 int editorIndex = EDITOR_DELAY_INDEX;
 
@@ -91,7 +93,7 @@ void setup() {
   writeMode();
   writeDelay(dly);
   writeDirection();
-  writeStep(stp);
+  writeAngle(angleIncPerStep[angIndex]);
 
   Timer1.initialize(1000000);       // 1000000 = 1 sec
   Timer1.attachInterrupt(runTimer); // runTimer to run every 1 second
@@ -119,7 +121,9 @@ void loop() {
       nextEditor();
     }
   } else if (button == BTN_ZERO) {
-    writeStep(stp = 0);
+    if (mod == MODE_AUTO) {
+      writeAngle(runAngle = 0);
+    }
   }
 
   if (mod == MODE_MANUAL) {
@@ -139,6 +143,7 @@ void runTimer() {
       doStep(1);
     }
     writeDelay(rundly);
+    writeAngle(runAngle);
     writeDebugInfo("active\t");
   }
   writeDebugInfo("auto cycle\n");
@@ -150,9 +155,7 @@ void runTimer() {
 
 void nextEditor() {
   if (mod == MODE_MANUAL) {
-//    if (editorIndex == 0 || editorIndex == EDITOR_STEP_INDEX) {
-//  Removed step editor
-    if (editorIndex == 0 || editorIndex == EDITOR_DELAY_INDEX) {
+    if (editorIndex == 0 || editorIndex == EDITOR_ANGLE_INDEX) {
       editorIndex = 1;
     } else {
       editorIndex++;
@@ -167,8 +170,17 @@ void changeEditorValue(int ammount) {
   } else if (editorIndex == EDITOR_DIR_INDEX) {
     changeValue(&dir, ammount, 0, DIRECTION_COUNTERCLOCKWISE);
     writeDirection();
-  } else if (editorIndex == EDITOR_STEP_INDEX) {
-    doStep(ammount);
+  } else if (editorIndex == EDITOR_ANGLE_INDEX) {
+    int maxIndex = sizeof(angleIncPerStep) / sizeof(*angleIncPerStep) - 1;
+    int normAmmount = ammount > 0 ? 1 : -1;
+    if (angIndex == maxIndex && normAmmount > 0) {
+      angIndex = 0;
+    } else if (angIndex == 0 && normAmmount < 0) {
+      angIndex = maxIndex;
+    } else {
+      angIndex += normAmmount;
+    }
+    writeAngle(angleIncPerStep[angIndex]);
   }  
 }
 
@@ -190,16 +202,17 @@ void doStep(int ammount) {
     // Counterclockwise case; CW == normally counterclockwise ?!
     stepperMotor.setDirection(CW);
   }
-  stepperMotor.rotateDegrees(1.8*abs(ammount));
+  float degree = ((float) angleIncPerStep[angIndex]) / 10.0;
+  stepperMotor.rotateDegrees(degree * abs(ammount));
   
-  changeValue(&stp, ammount, 0, STEP_MAX);
-  writeStep(stp);
+  changeValue(&runAngle, angleIncPerStep[angIndex], 0, ANGLE_MAX);
+  writeAngle(runAngle);
 }
 
 void changeValue(int *value, int ammount, int minimum, int maximum) {
   if (ammount > 0) { // increase
     if ((*value) == maximum || ((*value) + ammount) > maximum) {
-      (*value) = minimum;
+      (*value) = (*value) + ammount - maximum;
     } else {
       (*value) += ammount;
     }
@@ -215,8 +228,9 @@ void changeValue(int *value, int ammount, int minimum, int maximum) {
 void switchMode() {
   mod ^= 1;
   if (mod == MODE_MANUAL) {
-    editorIndex = EDITOR_DELAY_INDEX;
+    editorIndex = EDITOR_ANGLE_INDEX;
     writeDelay(dly);
+    writeAngle(angleIncPerStep[angIndex]);
   } else {
     if (POWER_SAVING) {
       lcdLightFlag = false;
@@ -224,6 +238,7 @@ void switchMode() {
     lcd.noCursor();
     editorIndex = 0;
     rundly = dly;
+    writeAngle(runAngle = 0);
   }
   writeMode();
 }
@@ -250,11 +265,11 @@ void writeLCDHeaders() {
   lcd.setCursor(0, 0);
   lcd.print("Mod");
   lcd.setCursor(4, 0);
-  lcd.print("Dir");
-  lcd.setCursor(8, 0);
+  lcd.print("Di");
+  lcd.setCursor(7, 0);
   lcd.print("Dly");
-  lcd.setCursor(12, 0);
-  lcd.print("Step");
+  lcd.setCursor(11, 0);
+  lcd.print("Angle");
 }
 
 void writeMode() {
@@ -270,7 +285,7 @@ void writeMode() {
 }
 
 void writeDelay(int value) {
-  writeThreeDigitNumber(7, 1, value);
+  writeThreeDigitNumber(6, 1, value);
 }
 
 void writeDirection() {
@@ -285,8 +300,11 @@ void writeDirection() {
   }
 }
 
-void writeStep(int value) {
-  writeThreeDigitNumber(12, 1, value);
+void writeAngle(int value) {
+  writeThreeDigitNumber(10, 1, value / 10);
+//  lcd.setCursor(14, 1);
+  lcd.print('.');
+  lcd.print(value % 10);
 }
 
 void writeThreeDigitNumber(int cursorColumn, int cursorRow, int value) { // align right
@@ -303,9 +321,9 @@ void writeThreeDigitNumber(int cursorColumn, int cursorRow, int value) { // alig
 
 void showEditor() {
   switch(editorIndex) {
-    case EDITOR_STEP_INDEX:
+    case EDITOR_ANGLE_INDEX:
       lcd.cursor();
-      lcd.setCursor(STEP_EDITOR_CURSOR_POSITION, 1);
+      lcd.setCursor(ANGLE_EDITOR_CURSOR_POSITION, 1);
       break;
     case EDITOR_DIR_INDEX:
       lcd.cursor();
