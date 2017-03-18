@@ -37,6 +37,8 @@ CustomStepper stepperMotor(8, 9, 10, 11, (byte[]){8, B1000, B1100, B0100, B0110,
 #define ENABLE_SERIAL 0 // when developing write program debug infos over SERIAL port
 #define POWER_SAVING 0  // disable LCD light after 10 sec, stop stepper motor after step
 
+#define GEAR_RATIO 3.1
+
 #define LCD_LIGHT_PIN 12
 
 #define MODE_MANUAL 0
@@ -70,8 +72,8 @@ int lcdLightPowerOffCounter = lcdLightPowerOffTime;
 boolean lcdLightFlag = true;
 
 int mod = MODE_MANUAL;
-int dly = 36; // 36 default
-int angIndex = 2; // angleIncPerStep[2] = 18  default
+int dly = 9; // default value
+int angIndex = 1; // angleIncPerStep[2] = 9  default
 int dir = DIRECTION_CLOCKWISE;
 
 // run time display variables
@@ -143,7 +145,7 @@ void runTimer() {
       doStep(1);
     }
     writeDelay(rundly);
-    writeAngle(runAngle);
+    writeAngle(runAngle / GEAR_RATIO);
     writeDebugInfo("active\t");
   }
   writeDebugInfo("auto cycle\n");
@@ -168,7 +170,7 @@ void changeEditorValue(int ammount) {
     changeValue(&dly, ammount, 1, DELAY_MAX);
     writeDelay(dly);
   } else if (editorIndex == EDITOR_DIR_INDEX) {
-    changeValue(&dir, ammount, 0, DIRECTION_COUNTERCLOCKWISE);
+    changeValue(&dir, ammount, 0, 1);
     writeDirection();
   } else if (editorIndex == EDITOR_ANGLE_INDEX) {
     int maxIndex = sizeof(angleIncPerStep) / sizeof(*angleIncPerStep) - 1;
@@ -206,7 +208,6 @@ void doStep(int ammount) {
   stepperMotor.rotateDegrees(degree * abs(ammount));
   
   changeValue(&runAngle, angleIncPerStep[angIndex], 0, ANGLE_MAX);
-  writeAngle(runAngle);
 }
 
 void changeValue(int *value, int ammount, int minimum, int maximum) {
@@ -352,20 +353,25 @@ int readRemote() {
     lcdLightPowerOffCounter = lcdLightPowerOffTime;
     switch (results.value) {
       case 16769055: // -
+      case 1:
         result = lastPressed = BTN_MINUS;
         break;
       case 16754775: // +
+      case 2:
         result = lastPressed = BTN_PLUS;
         break;
       case 16748655: // eq
+      case 3:
         result = BTN_EQ;
         lastPressed = 0;
         break;
       case 16761405: // play/pause
+      case 4:
         result = BTN_PLAY;
         lastPressed = 0;
         break;
       case 16738455: // 0
+      case 0:
         result = BTN_ZERO;
         lastPressed = 0;
         break;
@@ -377,7 +383,7 @@ int readRemote() {
     }
     writeDebugInfo("pressed key code: ");
     writeDebugInfo(results.value);
-    writeDebugInfo("\n");
+    writeDebugInfo("\r\n");
     irrecv.resume(); // Receive the next value
   }
   return result;
